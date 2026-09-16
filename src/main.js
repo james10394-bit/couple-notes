@@ -104,12 +104,9 @@ async function syncGoogle() {
       if(old){if(old.title!==v.title||old.date!==v.date||old.done!==v.done)await updateDoc(doc(db,'couples',coupleId,'items',old.id),v)}
       else await addDoc(coll('items'),v);
     }
-    // Do not erase calendar items merely because they fall outside the 90-day fetch window.
-    for(const old of existing)if(!incoming.has(old.source)&&(
-      old.source.startsWith('task:')&&selected('lists').some(l=>old.source.startsWith(`task:${uid()}:${l}:`)) ||
-      old.source.startsWith('calendar:')&&selected('calendars').some(c=>old.source.startsWith(`calendar:${uid()}:${c}:`))&&new Date(old.date)>=now&&new Date(old.date)<=end
-    ))await deleteDoc(doc(db,'couples',coupleId,'items',old.id));
-    const s=document.querySelector('#sync-status');if(s)s.textContent=`同步完成 · ${new Date().toLocaleTimeString('zh-TW')}`;
+    for(const old of existing)
+  if(!incoming.has(old.source))
+    await deleteDoc(doc(db,'couples',coupleId,'items',old.id)); const s=document.querySelector('#sync-status');if(s)s.textContent=`同步完成 · ${new Date().toLocaleTimeString('zh-TW')}`;
   } finally {syncing=false;}
 }
 
