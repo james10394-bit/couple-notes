@@ -93,7 +93,7 @@ async function syncGoogle() {
     const now=new Date(),end=new Date(Date.now()+90*86400000);
     for(const calendar of selected('calendars')) {
       const url=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar)}/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(now.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}`;
-      for(const ev of await pages(url))if(ev.status!=='cancelled'&&ev.summary&&ev.start){
+      for(const ev of await pages(url))if(ev.status!=='cancelled'&&ev.summary?.includes('哲銘')&&ev.start){
         const source=`calendar:${uid()}:${calendar}:${ev.id}`;
         incoming.set(source,{title:ev.summary.slice(0,100),date:ev.start.dateTime||ev.start.date||'',kind:'shift',done:false,ownerUid:uid(),source,updatedAt:serverTimestamp()});
       }
