@@ -1,12 +1,12 @@
 import './style.css';
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
-import { getFirestore, collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { initializeFirestore, collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 const env = import.meta.env;
 const configured = !!(env.VITE_FIREBASE_API_KEY && env.VITE_FIREBASE_PROJECT_ID && env.VITE_FIREBASE_APP_ID);
 const app = configured ? initializeApp({apiKey:env.VITE_FIREBASE_API_KEY,authDomain:env.VITE_FIREBASE_AUTH_DOMAIN,projectId:env.VITE_FIREBASE_PROJECT_ID,appId:env.VITE_FIREBASE_APP_ID}) : null;
-const auth = app && getAuth(app), db = app && getFirestore(app);
+const auth = app && getAuth(app), db = app && initializeFirestore(app, { experimentalForceLongPolling: true });
 const root = document.querySelector('#app');
 let user = null, coupleId = null, notes = [], items = [], members = [], stops = [], googleToken = '', googleExpiry = 0, googleTimer = null, syncing = false;
 const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
