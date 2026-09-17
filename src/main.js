@@ -1,4 +1,5 @@
 import './style.css';
+import { calendarMarkup, setupCalendar, dateKey } from './calendar.js';
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithCredential, onAuthStateChanged, signOut } from 'firebase/auth';
 import { initializeFirestore, collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
@@ -12,23 +13,48 @@ const auth = app && getAuth(app), db = app && initializeFirestore(app, {
 });
 const root = document.querySelector('#app');
 let user = null, coupleId = null, notes = [], items = [], members = [], stops = [], inviteCode = '', inviteExpiry = 0, googleToken = '', googleExpiry = 0, googleTimer = null, syncing = false;
+let calendarMonth = new Date(), selectedDay = dateKey(new Date());
 const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const error = e => { console.error(e); alert(e?.message || '操作失敗，請稍後再試。'); };
 const dateText = v => v ? new Date(v).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '未設定';
 const uid = () => user?.uid;
 const coll = path => collection(db,'couples',coupleId,path);
 
+
+function defaultItemDate(){
+  const [year,month,day]=selectedDay.split('-').map(Number);
+  const d=year?new Date(year,month-1,day,8,0):new Date();
+  const local=new Date(d.getTime()-d.getTimezoneOffset()*60000);
+  return local.toISOString().slice(0,16);
+}
+
+function appMarkup(){
+  const kindLabel=k=>k==='shift'?'值班':k==='memo'?'Memo':'待辦';
+  const kindClass=k=>k==='shift'?'shift':k==='memo'?'memo':'task';
+  return `<main class="shell"><header><div><small>OUR LITTLE DAYS · ${esc(members.map(m=>m.displayName).join(' × '))}</small><h1>兩個人的小日子 ♡</h1></div><button class="subtle" id="logout">登出</button></header>
+  <nav><a href="#calendar">行事曆</a><a href="#items">待辦與值班</a><a href="#notes">記事本</a><a href="#google">Google 同步</a></nav>
+  <section class="intro card"><div><h2>今天也一起把生活記下來</h2><p>行程、代辦、值班與記事即時同步，點日期即可查看當日內容。</p></div><div><div class="pill">已同步 · ${esc(members.length)} 位成員</div><button class="subtle" id="invite-button">${inviteCode&&inviteExpiry>Date.now()?`邀請碼：${esc(inviteCode)}（點擊複製）`:'產生邀請碼'}</button></div></section>
+  <div class="content-stack">
+    ${calendarMarkup(items,notes,calendarMonth,selectedDay)}
+    <section class="card" id="items"><h2>待辦與值班</h2><p class="section-hint">加入待辦、值班或 Memo；有日期的內容會顯示在上方行事曆。</p><form id="item-form"><input name="title" maxlength="100" required placeholder="例如：買牛奶 / 晚班 / 重要提醒"><div class="row"><select name="kind"><option value="task">共同待辦</option><option value="shift">值班行程</option><option value="memo">Memo</option></select><input name="date" type="datetime-local" value="${defaultItemDate()}"></div><button>加入清單</button></form><div class="list">${items.length?items.map(i=>`<article class="entry ${i.done?'done':''}"><div class="row"><label class="item-label">${i.kind==='task'?`<input type="checkbox" data-toggle="${esc(i.id)}" ${i.done?'checked':''} ${i.source?'disabled title="Google 匯入項目請在 Google 修改"':''}>`:`<span class="item-kind-dot ${kindClass(i.kind)}"></span>`}<strong>${esc(i.title)}</strong></label>${i.source?'':`<button class="icon" data-delete-item="${esc(i.id)}" aria-label="刪除項目">×</button>`}</div><small>${kindLabel(i.kind)} · ${esc(dateText(i.date))}${i.source?' · Google 匯入':''}</small></article>`).join(''):'<p class="empty">還沒有待辦、值班或 Memo。</p>'}</div></section>
+    <section class="card" id="notes"><h2>我們的記事本</h2><form id="note-form"><input name="title" maxlength="100" required placeholder="標題，例如：週末小旅行"><textarea name="body" maxlength="10000" required placeholder="寫下想記住的事…"></textarea><button>新增記事</button></form><div class="list">${notes.length?notes.map(n=>`<article class="entry"><div class="row"><strong>${esc(n.title)}</strong><button class="icon" data-delete-note="${esc(n.id)}" aria-label="刪除記事">×</button></div><p class="pre">${esc(n.body)}</p><small>${esc(members.find(m=>m.uid===n.authorUid)?.displayName||'成員')}</small></article>`).join(''):'<p class="empty">還沒有記事，寫下第一句吧。</p>'}</div></section>
+  </div>
+  <section class="card google" id="google"><h2>Google 工作與值班同步</h2><p>連接 Google 工作清單和日曆後，選取要分享的清單與值班日曆。匯入資料只能在 Google 修改。</p><div class="row"><button id="connect-google">${googleToken?'重新授權 Google':'連接 Google'}</button><button class="subtle" id="sync-google" ${googleToken?'':'disabled'}>立即同步</button></div><div id="google-selectors"></div><small id="sync-status">${googleToken?'已授權，網頁開啟時每 5 分鐘更新':'尚未授權'}</small></section>
+  <footer>版本 1.0.2 · 個人資料由兩人空間成員查看</footer></main>`;
+}
 function render() {
   if (!configured) {root.innerHTML=`<main class="shell"><h1>兩個人的小日子 ♡</h1><div class="card"><h2>先完成設定</h2><p>建立 Firebase 專案，將 <code>.env.example</code> 複製為 <code>.env</code> 並填入設定，再啟動網站。步驟請看 README。</p></div></main>`;return;}
   if (!user) {root.innerHTML=`<main class="shell login"><div class="hero"><small>OUR LITTLE DAYS</small><h1>兩個人的小日子 ♡</h1><p>想說的話、要做的事、上班的日子，放在同一個地方。</p><button id="login">使用 Google 登入</button></div></main>`;return;}
   if (!coupleId) {root.innerHTML=`<main class="shell"><header><h1>兩個人的小日子 ♡</h1><button class="subtle" id="logout">登出</button></header><div class="grid"><section class="card"><h2>建立兩人空間</h2><p>建立後取得邀請碼，傳給另一半。</p><button id="create">建立空間</button></section><section class="card"><h2>加入另一半的空間</h2><input id="invite-input" placeholder="輸入邀請碼" maxlength="32"><button id="join">加入空間</button></section></div></main>`;return;}
-  root.innerHTML=`<main class="shell"><header><div><small>OUR LITTLE DAYS · ${esc(members.map(m=>m.displayName).join(' × '))}</small><h1>兩個人的小日子 ♡</h1></div><button class="subtle" id="logout">登出</button></header>
-  <nav><a href="#notes">記事</a><a href="#items">待辦與值班</a><a href="#google">Google 同步</a></nav>
-  <section class="intro card"><div><h2>今天也一起把生活記下來</h2><p>記事與行程即時同步。分享給另一半的內容，由你自己選擇。</p></div><div><div class="pill">已同步 · ${esc(members.length)} 位成員</div><button class="subtle" id="invite-button">${inviteCode&&inviteExpiry>Date.now()?`邀請碼：${esc(inviteCode)}（點擊複製）`:'產生邀請碼'}</button></div></section>
-  <div class="grid"><section class="card" id="notes"><h2>我們的記事本</h2><form id="note-form"><input name="title" maxlength="100" required placeholder="標題，例如：週末小旅行"><textarea name="body" maxlength="10000" required placeholder="寫下想記住的事…"></textarea><button>新增記事</button></form><div class="list">${notes.length?notes.map(n=>`<article class="entry"><div class="row"><strong>${esc(n.title)}</strong><button class="icon" data-delete-note="${esc(n.id)}" aria-label="刪除記事">×</button></div><p class="pre">${esc(n.body)}</p><small>${esc(members.find(m=>m.uid===n.authorUid)?.displayName||'成員')}</small></article>`).join(''):'<p class="empty">還沒有記事，寫下第一句吧。</p>'}</div></section>
-  <section class="card" id="items"><h2>待辦與值班</h2><form id="item-form"><input name="title" maxlength="100" required placeholder="例如：買牛奶 / 晚班"><div class="row"><select name="kind"><option value="task">共同待辦</option><option value="shift">值班行程</option></select><input name="date" type="datetime-local"></div><button>加入清單</button></form><div class="list">${items.length?items.map(i=>`<article class="entry ${i.done?'done':''}"><div class="row"><label><input type="checkbox" data-toggle="${esc(i.id)}" ${i.done?'checked':''} ${i.source?'disabled title="Google 匯入項目請在 Google 修改"':''}> <strong>${esc(i.title)}</strong></label>${i.source?'':`<button class="icon" data-delete-item="${esc(i.id)}" aria-label="刪除項目">×</button>`}</div><small>${i.kind==='shift'?'值班':'待辦'} · ${esc(dateText(i.date))}${i.source?' · Google 匯入':''}</small></article>`).join(''):'<p class="empty">還沒有待辦或值班。</p>'}</div></section></div>
-  <section class="card google" id="google"><h2>Google 工作與值班同步</h2><p>連接 Google 工作清單和日曆後，選取要分享的清單與值班日曆。選取的項目會顯示給另一半，這裡的匯入資料只能在 Google 修改。</p><div class="row"><button id="connect-google">${googleToken?'重新授權 Google':'連接 Google'}</button><button class="subtle" id="sync-google" ${googleToken?'':'disabled'}>立即同步</button></div><div id="google-selectors"></div><small id="sync-status">${googleToken?'已授權，網頁開啟時每 5 分鐘更新':'尚未授權'}</small></section>
-  <footer>版本 1.0.0 · 個人資料由兩人空間成員查看</footer></main>`;
+  root.innerHTML=appMarkup();
+  setupCalendar(root,{
+    onSelectDay:day=>{selectedDay=day;render();requestAnimationFrame(()=>document.querySelector('#daily')?.scrollIntoView({behavior:'smooth',block:'start'}));},
+    onChangeMonth:step=>{calendarMonth=new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+step,1);render();},
+    onToday:()=>{const now=new Date();calendarMonth=new Date(now.getFullYear(),now.getMonth(),1);selectedDay=dateKey(now);render();},
+    onToggle:(id,done)=>updateDoc(doc(db,'couples',coupleId,'items',id),{done,updatedAt:serverTimestamp()}).catch(error),
+    onDeleteItem:id=>deleteDoc(doc(db,'couples',coupleId,'items',id)).catch(error),
+    onDeleteNote:id=>deleteDoc(doc(db,'couples',coupleId,'notes',id)).catch(error)
+  });
   if (googleToken) loadSelectors().catch(error);
 }
 
@@ -162,4 +188,5 @@ root.addEventListener('submit',async e=>{e.preventDefault();try{
 }catch(err){error(err)}});
 root.addEventListener('change',async e=>{if(e.target.dataset.toggle){try{await updateDoc(doc(db,'couples',coupleId,'items',e.target.dataset.toggle),{done:e.target.checked,updatedAt:serverTimestamp()})}catch(err){error(err)}}});
 if(configured)onAuthStateChanged(auth,async u=>{user=u;coupleId=null;inviteCode='';inviteExpiry=0;stops.forEach(f=>f());stops=[];if(u){try{const profile=await getDoc(doc(db,'users',u.uid));if(profile.exists())await startSpace(profile.data().coupleId);else render()}catch(err){error(err);render()}}else render()});else render();
+
 
