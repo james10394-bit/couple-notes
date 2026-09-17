@@ -1,6 +1,6 @@
 import './style.css';
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithCredential, onAuthStateChanged, signOut } from 'firebase/auth';
 import { initializeFirestore, collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 const env = import.meta.env;
@@ -60,7 +60,22 @@ async function joinSpace(code) {
 }
 
 function googleReady() {if(!env.VITE_GOOGLE_CLIENT_ID)throw new Error('請先在 .env 設定 VITE_GOOGLE_CLIENT_ID');if(!window.google?.accounts?.oauth2)throw new Error('Google 登入元件尚未載入，請重新整理');}
-function authorizeGoogle() {
+function loginGoogle() {
+  googleReady();
+  window.google.accounts.oauth2.initTokenClient({
+    client_id: env.VITE_GOOGLE_CLIENT_ID,
+    scope: 'openid email profile',
+    callback: async r => {
+      if (r.error) return error(new Error(r.error));
+      try {
+        const credential = GoogleAuthProvider.credential(null, r.access_token);
+        await signInWithCredential(auth, credential);
+      } catch (err) {
+        error(err);
+      }
+    }
+  }).requestAccessToken({prompt: 'select_account'});
+}function authorizeGoogle() {
   googleReady();window.google.accounts.oauth2.initTokenClient({client_id:env.VITE_GOOGLE_CLIENT_ID,scope:'https://www.googleapis.com/auth/tasks.readonly https://www.googleapis.com/auth/calendar.readonly',callback:r=>{if(r.error)return error(new Error(r.error));googleToken=r.access_token;googleExpiry=Date.now()+Number(r.expires_in||3600)*1000;render();syncGoogle().catch(error);if(googleTimer)clearInterval(googleTimer);googleTimer=setInterval(()=>{if(googleToken&&Date.now()<googleExpiry-60000)syncGoogle().catch(error);},300000);}}).requestAccessToken({prompt:'consent'});
 }
 async function api(url) {
@@ -112,7 +127,7 @@ async function syncGoogle() {
 
 root.addEventListener('click',async e=>{try{
   const t=e.target;
-  if(t.id==='login')await signInWithPopup(auth,new GoogleAuthProvider());
+  if(t.id==='login')loginGoogle();
   if(t.id==='logout'){stops.forEach(f=>f());stops=[];coupleId=null;googleToken='';if(googleTimer)clearInterval(googleTimer);await signOut(auth);}
   if(t.id==='create')await createSpace();
   if(t.id==='join')await joinSpace(document.querySelector('#invite-input').value);
