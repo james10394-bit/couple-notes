@@ -31,3 +31,4 @@ Google Tasks 和 Calendar 權限是唯讀，Google 匯入項目無法在此網�
 ## GitHub
 
 建立一個新的私有儲存庫，例如 `couple-notes`，上傳這個程式包內所有檔案（不要上傳 `.env` 或 `node_modules`）。若 GitHub App 已提供可寫入的既有儲存庫，也可建立分支及 PR。程式原始碼即使放在私有儲存庫，GitHub Pages 的網站內容和前端建置後的識別值仍應視為公開。
+

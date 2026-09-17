@@ -5,58 +5,99 @@ service cloud.firestore {
     function coupleMember(coupleId) {
       return signedIn() && exists(/databases/$(database)/documents/couples/$(coupleId)/members/$(request.auth.uid));
     }
+
     match /users/{uid} {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
+
     match /invites/{code} {
       allow get: if signedIn();
       allow list: if false;
-      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['coupleId','ownerUid','expiresAt'])
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['coupleId', 'ownerUid', 'expiresAt'])
         && request.resource.data.expiresAt is timestamp;
       allow update, delete: if false;
     }
+
     match /couples/{coupleId} {
-      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid
-        && request.resource.data.partnerUid == '' && request.resource.data.inviteCode == ''
-        && request.resource.data.keys().hasOnly(['createdBy','createdAt','partnerUid','inviteCode']);
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.partnerUid == ''
+        && request.resource.data.inviteCode is string
+        && request.resource.data.inviteExpiresAt is timestamp
+        && request.resource.data.keys().hasOnly([
+          'createdBy', 'createdAt', 'partnerUid', 'inviteCode', 'inviteExpiresAt'
+        ]);
+
       allow get: if coupleMember(coupleId);
-      allow update: if signedIn() && request.auth.uid != resource.data.createdBy && resource.data.partnerUid == ''
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.partnerUid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['createdBy','createdAt','partnerUid','inviteCode'])
-        && exists(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode))
-        && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.coupleId == coupleId
-        && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.ownerUid == resource.data.createdBy
-        && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.expiresAt > request.time;
+
+      allow update: if signedIn() && (
+        (
+          request.auth.uid == resource.data.createdBy
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.partnerUid == resource.data.partnerUid
+          && request.resource.data.keys().hasOnly([
+            'createdBy', 'createdAt', 'partnerUid', 'inviteCode', 'inviteExpiresAt'
+          ])
+          && request.resource.data.inviteCode is string
+          && request.resource.data.inviteExpiresAt is timestamp
+        )
+        ||
+        (
+          request.auth.uid != resource.data.createdBy
+          && resource.data.partnerUid == ''
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.partnerUid == request.auth.uid
+          && request.resource.data.keys().hasOnly([
+            'createdBy', 'createdAt', 'partnerUid', 'inviteCode', 'inviteExpiresAt'
+          ])
+          && exists(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode))
+          && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.coupleId == coupleId
+          && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.ownerUid == resource.data.createdBy
+          && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.expiresAt > request.time
+        )
+      );
+
       allow list, delete: if false;
+
       match /members/{uid} {
         allow get, list: if coupleMember(coupleId);
-        allow create: if signedIn() && request.auth.uid == uid
+        allow create: if signedIn()
+          && request.auth.uid == uid
           && request.resource.data.uid == uid
-          && request.resource.data.keys().hasOnly(['uid','displayName','joinedAt','inviteCode'])
+          && request.resource.data.keys().hasOnly(['uid', 'displayName', 'joinedAt', 'inviteCode'])
           && (
-            (get(/databases/$(database)/documents/couples/$(coupleId)).data.createdBy == uid
-             && !('inviteCode' in request.resource.data))
+            (
+              get(/databases/$(database)/documents/couples/$(coupleId)).data.createdBy == uid
+              && !('inviteCode' in request.resource.data)
+            )
             ||
-            (get(/databases/$(database)/documents/couples/$(coupleId)).data.partnerUid == uid
-             && get(/databases/$(database)/documents/couples/$(coupleId)).data.inviteCode == request.resource.data.inviteCode)
+            (
+              get(/databases/$(database)/documents/couples/$(coupleId)).data.partnerUid == uid
+              && get(/databases/$(database)/documents/couples/$(coupleId)).data.inviteCode == request.resource.data.inviteCode
+            )
           );
         allow update, delete: if false;
       }
+
       match /notes/{noteId} {
         allow read: if coupleMember(coupleId);
-        allow create: if coupleMember(coupleId) && request.resource.data.authorUid == request.auth.uid
-          && request.resource.data.keys().hasOnly(['title','body','authorUid','updatedAt','createdAt']);
-        allow update: if coupleMember(coupleId) && request.resource.data.authorUid == resource.data.authorUid
-          && request.resource.data.keys().hasOnly(['title','body','authorUid','updatedAt','createdAt']);
+        allow create: if coupleMember(coupleId)
+          && request.resource.data.authorUid == request.auth.uid
+          && request.resource.data.keys().hasOnly(['title', 'body', 'authorUid', 'updatedAt', 'createdAt']);
+        allow update: if coupleMember(coupleId)
+          && request.resource.data.authorUid == resource.data.authorUid
+          && request.resource.data.keys().hasOnly(['title', 'body', 'authorUid', 'updatedAt', 'createdAt']);
         allow delete: if coupleMember(coupleId);
       }
+
       match /items/{itemId} {
         allow read: if coupleMember(coupleId);
         allow create, update: if coupleMember(coupleId)
-          && request.resource.data.keys().hasOnly(['title','date','kind','done','ownerUid','source','updatedAt']);
+          && request.resource.data.keys().hasOnly(['title', 'date', 'kind', 'done', 'ownerUid', 'source', 'updatedAt']);
         allow delete: if coupleMember(coupleId);
       }
     }
