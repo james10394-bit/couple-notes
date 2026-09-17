@@ -11,7 +11,7 @@ const auth = app && getAuth(app), db = app && initializeFirestore(app, {
   useFetchStreams: false
 });
 const root = document.querySelector('#app');
-let user = null, coupleId = null, notes = [], items = [], members = [], stops = [], googleToken = '', googleExpiry = 0, googleTimer = null, syncing = false;
+let user = null, coupleId = null, notes = [], items = [], members = [], stops = [], inviteCode = '', inviteExpiry = 0, googleToken = '', googleExpiry = 0, googleTimer = null, syncing = false;
 const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const error = e => { console.error(e); alert(e?.message || '操作失敗，請稍後再試。'); };
 const dateText = v => v ? new Date(v).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '未設定';
@@ -24,7 +24,7 @@ function render() {
   if (!coupleId) {root.innerHTML=`<main class="shell"><header><h1>兩個人的小日子 ♡</h1><button class="subtle" id="logout">登出</button></header><div class="grid"><section class="card"><h2>建立兩人空間</h2><p>建立後取得邀請碼，傳給另一半。</p><button id="create">建立空間</button></section><section class="card"><h2>加入另一半的空間</h2><input id="invite-input" placeholder="輸入邀請碼" maxlength="32"><button id="join">加入空間</button></section></div></main>`;return;}
   root.innerHTML=`<main class="shell"><header><div><small>OUR LITTLE DAYS · ${esc(members.map(m=>m.displayName).join(' × '))}</small><h1>兩個人的小日子 ♡</h1></div><button class="subtle" id="logout">登出</button></header>
   <nav><a href="#notes">記事</a><a href="#items">待辦與值班</a><a href="#google">Google 同步</a></nav>
-  <section class="intro card"><div><h2>今天也一起把生活記下來</h2><p>記事與行程即時同步。分享給另一半的內容，由你自己選擇。</p></div><div class="pill">已同步 · ${esc(members.length)} 位成員</div></section>
+  <section class="intro card"><div><h2>今天也一起把生活記下來</h2><p>記事與行程即時同步。分享給另一半的內容，由你自己選擇。</p></div><div><div class="pill">已同步 · ${esc(members.length)} 位成員</div><button class="subtle" id="invite-button">${inviteCode&&inviteExpiry>Date.now()?`邀請碼：${esc(inviteCode)}（點擊複製）`:'產生邀請碼'}</button></div></section>
   <div class="grid"><section class="card" id="notes"><h2>我們的記事本</h2><form id="note-form"><input name="title" maxlength="100" required placeholder="標題，例如：週末小旅行"><textarea name="body" maxlength="10000" required placeholder="寫下想記住的事…"></textarea><button>新增記事</button></form><div class="list">${notes.length?notes.map(n=>`<article class="entry"><div class="row"><strong>${esc(n.title)}</strong><button class="icon" data-delete-note="${esc(n.id)}" aria-label="刪除記事">×</button></div><p class="pre">${esc(n.body)}</p><small>${esc(members.find(m=>m.uid===n.authorUid)?.displayName||'成員')}</small></article>`).join(''):'<p class="empty">還沒有記事，寫下第一句吧。</p>'}</div></section>
   <section class="card" id="items"><h2>待辦與值班</h2><form id="item-form"><input name="title" maxlength="100" required placeholder="例如：買牛奶 / 晚班"><div class="row"><select name="kind"><option value="task">共同待辦</option><option value="shift">值班行程</option></select><input name="date" type="datetime-local"></div><button>加入清單</button></form><div class="list">${items.length?items.map(i=>`<article class="entry ${i.done?'done':''}"><div class="row"><label><input type="checkbox" data-toggle="${esc(i.id)}" ${i.done?'checked':''} ${i.source?'disabled title="Google 匯入項目請在 Google 修改"':''}> <strong>${esc(i.title)}</strong></label>${i.source?'':`<button class="icon" data-delete-item="${esc(i.id)}" aria-label="刪除項目">×</button>`}</div><small>${i.kind==='shift'?'值班':'待辦'} · ${esc(dateText(i.date))}${i.source?' · Google 匯入':''}</small></article>`).join(''):'<p class="empty">還沒有待辦或值班。</p>'}</div></section></div>
   <section class="card google" id="google"><h2>Google 工作與值班同步</h2><p>連接 Google 工作清單和日曆後，選取要分享的清單與值班日曆。選取的項目會顯示給另一半，這裡的匯入資料只能在 Google 修改。</p><div class="row"><button id="connect-google">${googleToken?'重新授權 Google':'連接 Google'}</button><button class="subtle" id="sync-google" ${googleToken?'':'disabled'}>立即同步</button></div><div id="google-selectors"></div><small id="sync-status">${googleToken?'已授權，網頁開啟時每 5 分鐘更新':'尚未授權'}</small></section>
@@ -34,19 +34,36 @@ function render() {
 
 async function startSpace(id) {
   stops.forEach(f=>f()); stops=[];coupleId=id;
+  const space=await getDoc(doc(db,'couples',id));
+  inviteCode=space.data()?.inviteCode||'';
+  inviteExpiry=space.data()?.inviteExpiresAt?.toMillis?.()||0;
   for (const [path,set] of [['notes',v=>notes=v],['items',v=>items=v],['members',v=>members=v]]) {
     stops.push(onSnapshot(coll(path),snapshot=>{set(snapshot.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.updatedAt?.seconds||b.createdAt?.seconds||0)-(a.updatedAt?.seconds||a.createdAt?.seconds||0)));render();},error));
   }
   render();
 }
 
+async function createInvite() {
+  const code=crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase();
+  const expiresAt=Timestamp.fromMillis(Date.now()+7*86400000);
+  await setDoc(doc(db,'invites',code),{coupleId,ownerUid:uid(),expiresAt});
+  await updateDoc(doc(db,'couples',coupleId),{inviteCode:code,inviteExpiresAt:expiresAt});
+  inviteCode=code;inviteExpiry=expiresAt.toMillis();render();
+  alert(`邀請碼：${code}\n7 天內有效，請傳給另一半。`);
+}
+async function copyInvite() {
+  if(!inviteCode||inviteExpiry<=Date.now())return createInvite();
+  try{await navigator.clipboard.writeText(inviteCode);alert(`邀請碼 ${inviteCode} 已複製`)}
+  catch{prompt('請複製邀請碼',inviteCode)}
+}
 async function createSpace() {
   const id=crypto.randomUUID();
-  await setDoc(doc(db,'couples',id),{createdBy:uid(),createdAt:serverTimestamp(),partnerUid:'',inviteCode:''});
+  const code=crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase();
+  const expiresAt=Timestamp.fromMillis(Date.now()+7*86400000);
+  await setDoc(doc(db,'couples',id),{createdBy:uid(),createdAt:serverTimestamp(),partnerUid:'',inviteCode:code,inviteExpiresAt:expiresAt});
   await setDoc(doc(db,'couples',id,'members',uid()),{uid:uid(),displayName:user.displayName||'我',joinedAt:serverTimestamp()});
   await setDoc(doc(db,'users',uid()),{coupleId:id});
-  const code=crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase();
-  await setDoc(doc(db,'invites',code),{coupleId:id,ownerUid:uid(),expiresAt:Timestamp.fromMillis(Date.now()+7*86400000)});
+  await setDoc(doc(db,'invites',code),{coupleId:id,ownerUid:uid(),expiresAt});
   await startSpace(id);
   alert(`邀請碼：${code}\n7 天內有效，傳給另一半在「加入空間」輸入。`);
 }
@@ -130,6 +147,7 @@ root.addEventListener('click',async e=>{try{
   if(t.id==='login')loginGoogle();
   if(t.id==='logout'){stops.forEach(f=>f());stops=[];coupleId=null;googleToken='';if(googleTimer)clearInterval(googleTimer);await signOut(auth);}
   if(t.id==='create')await createSpace();
+  if(t.id==='invite-button')await copyInvite();
   if(t.id==='join')await joinSpace(document.querySelector('#invite-input').value);
   if(t.id==='connect-google')authorizeGoogle();
   if(t.id==='sync-google'){saveSelected();await syncGoogle();}
@@ -143,4 +161,5 @@ root.addEventListener('submit',async e=>{e.preventDefault();try{
   form.reset();
 }catch(err){error(err)}});
 root.addEventListener('change',async e=>{if(e.target.dataset.toggle){try{await updateDoc(doc(db,'couples',coupleId,'items',e.target.dataset.toggle),{done:e.target.checked,updatedAt:serverTimestamp()})}catch(err){error(err)}}});
-if(configured)onAuthStateChanged(auth,async u=>{user=u;coupleId=null;stops.forEach(f=>f());stops=[];if(u){try{const profile=await getDoc(doc(db,'users',u.uid));if(profile.exists())await startSpace(profile.data().coupleId);else render()}catch(err){error(err);render()}}else render()});else render();
+if(configured)onAuthStateChanged(auth,async u=>{user=u;coupleId=null;inviteCode='';inviteExpiry=0;stops.forEach(f=>f());stops=[];if(u){try{const profile=await getDoc(doc(db,'users',u.uid));if(profile.exists())await startSpace(profile.data().coupleId);else render()}catch(err){error(err);render()}}else render()});else render();
+
