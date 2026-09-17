@@ -7,6 +7,28 @@ export function dateKey(value){
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
+function coupleHolidays(year){
+  const pad=value=>String(value).padStart(2,'0');
+  const holidays=[
+    {date:`${year}-02-14`,title:'情人節 💝'},
+    {date:`${year}-03-14`,title:'白色情人節 🤍'},
+    {date:`${year}-03-18`,title:'交往紀念日 💞',anniversary:true},
+    {date:`${year}-05-20`,title:'520 我愛你 💗'},
+    {date:`${year}-12-24`,title:'平安夜 🎄'},
+    {date:`${year}-12-25`,title:'聖誕節 🎁'}
+  ];
+  try{
+    const lunar=new Intl.DateTimeFormat('en-u-ca-chinese',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric'});
+    for(let cursor=new Date(Date.UTC(year,0,1,4));cursor.getUTCFullYear()===year;cursor.setUTCDate(cursor.getUTCDate()+1)){
+      if(lunar.format(cursor)==='7/7'){
+        holidays.push({date:`${year}-${pad(cursor.getUTCMonth()+1)}-${pad(cursor.getUTCDate())}`,title:'七夕情人節 🌹'});
+        break;
+      }
+    }
+  }catch(error){console.warn('無法計算七夕日期',error)}
+  return holidays;
+}
+
 export function calendarMarkup(items,notes,viewMonth,selectedDay){
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const valueDate=v=>typeof v?.toDate==='function'?v.toDate():v?.seconds?new Date(v.seconds*1000):new Date(v);
@@ -18,12 +40,15 @@ export function calendarMarkup(items,notes,viewMonth,selectedDay){
   const weekdays=['日','一','二','三','四','五','六'];
   const itemEvents=items.filter(i=>dateKey(i.date));
   const noteEvents=notes.filter(n=>dateKey(n.createdAt));
+  const holidayEvents=[...coupleHolidays(y-1),...coupleHolidays(y),...coupleHolidays(y+1)];
   const cells=Array.from({length:42},(_,index)=>{
     const d=new Date(start);d.setDate(start.getDate()+index);
     const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     const dayItems=itemEvents.filter(i=>dateKey(i.date)===key);
     const dayNotes=noteEvents.filter(n=>dateKey(n.createdAt)===key);
+    const dayHolidays=holidayEvents.filter(event=>event.date===key);
     const chips=[
+      ...dayHolidays.map(event=>`<span class="cal-chip holiday ${event.anniversary?'anniversary':''}">${esc(event.title)}</span>`),
       ...dayItems.map(i=>`<span class="cal-chip ${kindClass(i.kind)} ${i.done?'done':''}">${esc(i.title)}</span>`),
       ...dayNotes.map(n=>`<span class="cal-chip note">${esc(n.title)}</span>`)
     ];
@@ -32,8 +57,10 @@ export function calendarMarkup(items,notes,viewMonth,selectedDay){
   }).join('');
   const dayItems=itemEvents.filter(i=>dateKey(i.date)===selectedDay).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
   const dayNotes=noteEvents.filter(n=>dateKey(n.createdAt)===selectedDay);
+  const dayHolidays=holidayEvents.filter(event=>event.date===selectedDay);
   const selectedLabel=selectedDay?new Date(`${selectedDay}T12:00:00`).toLocaleDateString('zh-TW',{month:'long',day:'numeric',weekday:'long'}):'選擇日期';
   const agenda=[
+    ...dayHolidays.map(event=>`<article class="agenda-row holiday-row ${event.anniversary?'anniversary':''}"><div class="agenda-main"><label><span class="agenda-dot holiday"></span><strong>${esc(event.title)}</strong></label><small>${event.anniversary?'你們的重要紀念日':'情侶節日'}</small></div></article>`),
     ...dayItems.map(i=>{
       const canDelete=!i.source;
       const check=i.kind==='task'?`<input type="checkbox" data-calendar-toggle="${esc(i.id)}" ${i.done?'checked':''} ${i.source?'disabled':''}>`:`<span class="agenda-dot ${kindClass(i.kind)}"></span>`;
@@ -66,4 +93,3 @@ export function setupCalendar(root,handlers){
     });
   });
 }
-
