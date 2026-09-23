@@ -45,7 +45,7 @@ function appMarkup(){
     <section class="card" id="notes"><h2>我們的記事本</h2><form id="note-form"><input name="title" maxlength="100" required placeholder="標題，例如：週末小旅行"><textarea name="body" maxlength="10000" required placeholder="寫下想記住的事…"></textarea><button>新增記事</button></form><div class="list">${notes.length?notes.map(n=>editingNoteId===n.id?`<article class="entry editing"><form class="edit-note-form" data-note-id="${esc(n.id)}"><input name="title" maxlength="100" required value="${esc(n.title)}"><textarea name="body" maxlength="10000" required>${esc(n.body)}</textarea><div class="row note-actions"><button type="button" class="subtle" data-cancel-note>取消</button><button type="submit">儲存修改</button></div></form></article>`:`<article class="entry"><div class="row"><strong>${esc(n.title)}</strong><div class="entry-actions"><button class="icon edit-icon" data-edit-note="${esc(n.id)}" aria-label="修改記事">✎</button><button class="icon" data-delete-note="${esc(n.id)}" aria-label="刪除記事">×</button></div></div><p class="pre">${esc(n.body)}</p><small>${esc(members.find(m=>m.uid===n.authorUid)?.displayName||'成員')}</small></article>`).join(''):'<p class="empty">還沒有記事，寫下第一句吧。</p>'}</div></section>
   </div>
   <section class="card google" id="google"><h2>Google 工作與值班同步</h2><p>連接 Google 工作清單和日曆後，選取要分享的清單與值班日曆。匯入資料只能在 Google 修改。</p><div class="row"><button id="connect-google">${googleToken?'重新授權 Google':'連接 Google'}</button><button class="subtle" id="sync-google" ${googleToken?'':'disabled'}>立即同步</button></div><div id="google-selectors"></div><small id="sync-status">${googleToken?'已授權，網頁開啟時每 5 分鐘更新':'尚未授權'}</small></section>
-  <footer>版本 1.0.4 · 情侶節日與交往紀念日 · 個人資料由兩人空間成員查看</footer></main>`;
+  <footer>版本 1.0.5 · 農曆大吉、台灣國定假日與情侶節日 · 個人資料由兩人空間成員查看</footer></main>`;
 }
 function render() {
   if (!configured) {root.innerHTML=`<main class="shell"><h1>兩個人的小日子 ♡</h1><div class="card"><h2>先完成設定</h2><p>建立 Firebase 專案，將 <code>.env.example</code> 複製為 <code>.env</code> 並填入設定，再啟動網站。步驟請看 README。</p></div></main>`;return;}
@@ -196,4 +196,3 @@ root.addEventListener('submit',async e=>{e.preventDefault();try{
 }catch(err){error(err)}});
 root.addEventListener('change',async e=>{if(e.target.dataset.toggle){try{await updateDoc(doc(db,'couples',coupleId,'items',e.target.dataset.toggle),{done:e.target.checked,updatedAt:serverTimestamp()})}catch(err){error(err)}}});
 if(configured)onAuthStateChanged(auth,async u=>{user=u;coupleId=null;inviteCode='';inviteExpiry=0;stops.forEach(f=>f());stops=[];if(u){try{const profile=await getDoc(doc(db,'users',u.uid));if(profile.exists())await startSpace(profile.data().coupleId);else render()}catch(err){error(err);render()}}else render()});else render();
-
