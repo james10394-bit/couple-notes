@@ -13,7 +13,7 @@ const auth = app && getAuth(app), db = app && initializeFirestore(app, {
 });
 const root = document.querySelector('#app');
 let user = null, coupleId = null, notes = [], items = [], members = [], stops = [], inviteCode = '', inviteExpiry = 0, googleToken = '', googleExpiry = 0, googleTimer = null, syncing = false;
-let calendarMonth = new Date(), selectedDay = dateKey(new Date()), editingNoteId = '', copyingItemId = '';
+let calendarMonth = new Date(), selectedDay = dateKey(new Date()), editingNoteId = '', copyingItemId = '', copyMonth = new Date(), copyDates = new Set();
 const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const error = e => { console.error(e); alert(e?.message || '操作失敗，請稍後再試。'); };
 const dateText = v => v ? new Date(v).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '未設定';
@@ -37,6 +37,21 @@ function copyDateWithOriginalTime(item,dateValue){
   return new Date(`${dateValue}T${get('hour')}:${get('minute')}:00+08:00`).toISOString();
 }
 
+function copyCalendarSheet(source){
+  const month=new Date(copyMonth.getFullYear(),copyMonth.getMonth(),1);
+  const start=new Date(month);start.setDate(1-month.getDay());
+  const monthIndex=month.getMonth(),sourceDay=dateKey(source.date),today=dateKey(new Date());
+  const kindClass=kind=>kind==='shift'?'shift':kind==='memo'?'memo':'task';
+  const cells=Array.from({length:42},(_,index)=>{
+    const day=new Date(start);day.setDate(start.getDate()+index);
+    const key=`${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`;
+    const selected=copyDates.has(key),original=key===sourceDay;
+    const dots=items.filter(item=>dateKey(item.date)===key).slice(0,3).map(item=>`<i class="copy-event-dot ${kindClass(item.kind)}"></i>`).join('');
+    return `<button type="button" class="copy-cal-day ${day.getMonth()!==monthIndex?'outside':''} ${selected?'selected':''} ${key===today?'today':''} ${original?'original':''}" ${original?'disabled title="原始日期"':`data-copy-day="${key}"`}><span>${day.getDate()}</span><em>${original?'原始':dots}</em></button>`;
+  }).join('');
+  return `<div class="copy-overlay" data-close-copy><section class="copy-sheet" role="dialog" aria-modal="true" aria-label="複製到其他日期"><div class="copy-sheet-handle"></div><div class="copy-sheet-title"><div><small>複製行程</small><h2>${esc(source.title)}</h2><p>請點選日期，最多 30 個；原本內容與時間會自動保留。</p></div><button type="button" class="copy-sheet-close" data-cancel-copy aria-label="關閉">×</button></div><div class="copy-month-head"><button type="button" data-copy-month="-1" aria-label="上個月">‹</button><strong>${month.getFullYear()} 年 ${month.getMonth()+1} 月</strong><button type="button" data-copy-month="1" aria-label="下個月">›</button></div><div class="copy-weekdays">${['日','一','二','三','四','五','六'].map(day=>`<span>${day}</span>`).join('')}</div><div class="copy-calendar-grid">${cells}</div><div class="copy-sheet-footer"><span>已選擇 <b>${copyDates.size}</b> 個日期</span><button type="button" data-confirm-copy ${copyDates.size?'':'disabled'}>複製到已選日期${copyDates.size?`（${copyDates.size}）`:''}</button></div></section></div>`;
+}
+
 function appMarkup(){
   const visibleItems=items.filter(item=>{
     if(!item.date)return true;
@@ -46,17 +61,17 @@ function appMarkup(){
   const kindLabel=k=>k==='shift'?'值班':k==='memo'?'Memo':'待辦';
   const kindClass=k=>k==='shift'?'shift':k==='memo'?'memo':'task';
   const copyingItem=items.find(item=>item.id===copyingItemId&&!item.source);
-  const copyPanel=copyingItem?`<div class="copy-panel"><div class="row"><div><small>正在複製</small><h3>${esc(copyingItem.title)}</h3></div><button type="button" class="icon" data-cancel-copy aria-label="取消複製">×</button></div><p class="section-hint">${kindLabel(copyingItem.kind)}內容與原本時間會保留，只要選擇新日期。一次最多可複製 5 天。</p><form id="copy-item-form" data-source-item="${esc(copyingItem.id)}"><div class="copy-date-grid">${Array.from({length:5},(_,index)=>`<label><span>日期 ${index+1}${index===0?'（必填）':''}</span><input name="copy-date" type="date" ${index===0?'required':''}></label>`).join('')}</div><div class="row copy-actions"><button type="button" class="subtle" data-cancel-copy>取消</button><button type="submit">建立日期副本</button></div></form></div>`:'';
+  const copySheet=copyingItem?copyCalendarSheet(copyingItem):'';
   return `<main class="shell"><header><div><small>OUR LITTLE DAYS · ${esc(members.map(m=>m.displayName).join(' × '))}</small><h1>兩個人的小日子 ♡</h1></div><button class="subtle" id="logout">登出</button></header>
   <nav><a href="#calendar">行事曆</a><a href="#items">待辦與值班</a><a href="#notes">記事本</a><a href="#google">Google 同步</a></nav>
   <section class="intro card"><div><h2>今天也一起把生活記下來</h2><p>行程、代辦、值班與記事即時同步，點日期即可查看當日內容。</p></div><div><div class="pill">已同步 · ${esc(members.length)} 位成員</div><button class="subtle" id="invite-button">${inviteCode&&inviteExpiry>Date.now()?`邀請碼：${esc(inviteCode)}（點擊複製）`:'產生邀請碼'}</button></div></section>
   <div class="content-stack">
     ${calendarMarkup(items,notes,calendarMonth,selectedDay)}
-    <section class="card" id="items"><h2>待辦與值班</h2><p class="section-hint">加入待辦、值班或 Memo；有日期的內容會顯示在上方行事曆。</p><form id="item-form"><input name="title" maxlength="100" required placeholder="例如：買牛奶 / 晚班 / 重要提醒"><div class="row"><select name="kind"><option value="task">共同待辦</option><option value="shift">值班行程</option><option value="memo">Memo</option></select><input name="date" type="datetime-local" value="${defaultItemDate()}"></div><button>加入清單</button></form>${copyPanel}<div class="list">${visibleItems.length?visibleItems.map(i=>`<article class="entry ${i.done?'done':''}"><div class="row"><label class="item-label">${i.kind==='task'?`<input type="checkbox" data-toggle="${esc(i.id)}" ${i.done?'checked':''} ${i.source?'disabled title="Google 匯入項目請在 Google 修改"':''}>`:`<span class="item-kind-dot ${kindClass(i.kind)}"></span>`}<strong>${esc(i.title)}</strong></label><div class="entry-actions">${i.source?'':`<button class="icon copy-icon" data-copy-item="${esc(i.id)}" aria-label="複製到其他日期" title="複製到其他日期">⧉</button><button class="icon" data-delete-item="${esc(i.id)}" aria-label="刪除項目">×</button>`}</div></div><small>${kindLabel(i.kind)} · ${esc(dateText(i.date))}${i.source?' · Google 匯入':''}</small></article>`).join(''):'<p class="empty">還沒有待辦、值班或 Memo。</p>'}</div></section>
+    <section class="card" id="items"><h2>待辦與值班</h2><p class="section-hint">加入待辦、值班或 Memo；有日期的內容會顯示在上方行事曆。</p><form id="item-form"><input name="title" maxlength="100" required placeholder="例如：買牛奶 / 晚班 / 重要提醒"><div class="row"><select name="kind"><option value="task">共同待辦</option><option value="shift">值班行程</option><option value="memo">Memo</option></select><input name="date" type="datetime-local" value="${defaultItemDate()}"></div><button>加入清單</button></form><div class="list">${visibleItems.length?visibleItems.map(i=>`<article class="entry ${i.done?'done':''}"><div class="row"><label class="item-label">${i.kind==='task'?`<input type="checkbox" data-toggle="${esc(i.id)}" ${i.done?'checked':''} ${i.source?'disabled title="Google 匯入項目請在 Google 修改"':''}>`:`<span class="item-kind-dot ${kindClass(i.kind)}"></span>`}<strong>${esc(i.title)}</strong></label><div class="entry-actions">${i.source?'':`<button class="icon copy-icon" data-copy-item="${esc(i.id)}" aria-label="複製到其他日期" title="複製到其他日期">⧉</button><button class="icon" data-delete-item="${esc(i.id)}" aria-label="刪除項目">×</button>`}</div></div><small>${kindLabel(i.kind)} · ${esc(dateText(i.date))}${i.source?' · Google 匯入':''}</small></article>`).join(''):'<p class="empty">還沒有待辦、值班或 Memo。</p>'}</div></section>
     <section class="card" id="notes"><h2>我們的記事本</h2><form id="note-form"><input name="title" maxlength="100" required placeholder="標題，例如：週末小旅行"><textarea name="body" maxlength="10000" required placeholder="寫下想記住的事…"></textarea><button>新增記事</button></form><div class="list">${notes.length?notes.map(n=>editingNoteId===n.id?`<article class="entry editing"><form class="edit-note-form" data-note-id="${esc(n.id)}"><input name="title" maxlength="100" required value="${esc(n.title)}"><textarea name="body" maxlength="10000" required>${esc(n.body)}</textarea><div class="row note-actions"><button type="button" class="subtle" data-cancel-note>取消</button><button type="submit">儲存修改</button></div></form></article>`:`<article class="entry"><div class="row"><strong>${esc(n.title)}</strong><div class="entry-actions"><button class="icon edit-icon" data-edit-note="${esc(n.id)}" aria-label="修改記事">✎</button><button class="icon" data-delete-note="${esc(n.id)}" aria-label="刪除記事">×</button></div></div><p class="pre">${esc(n.body)}</p><small>${esc(members.find(m=>m.uid===n.authorUid)?.displayName||'成員')}</small></article>`).join(''):'<p class="empty">還沒有記事，寫下第一句吧。</p>'}</div></section>
   </div>
   <section class="card google" id="google"><h2>Google 工作與值班同步</h2><p>連接 Google 工作清單和日曆後，選取要分享的清單與值班日曆。匯入資料只能在 Google 修改。</p><div class="row"><button id="connect-google">${googleToken?'重新授權 Google':'連接 Google'}</button><button class="subtle" id="sync-google" ${googleToken?'':'disabled'}>立即同步</button></div><div id="google-selectors"></div><small id="sync-status">${googleToken?'已授權，網頁開啟時每 5 分鐘更新':'尚未授權'}</small></section>
-  <footer>版本 1.0.6 · 行程可批次複製日期 · 農曆大吉、台灣國定假日與情侶節日</footer></main>`;
+  <footer>版本 1.0.7 · 月曆式批次複製 · 農曆大吉、台灣國定假日與情侶節日</footer></main>${copySheet}`;
 }
 function render() {
   if (!configured) {root.innerHTML=`<main class="shell"><h1>兩個人的小日子 ♡</h1><div class="card"><h2>先完成設定</h2><p>建立 Firebase 專案，將 <code>.env.example</code> 複製為 <code>.env</code> 並填入設定，再啟動網站。步驟請看 README。</p></div></main>`;return;}
@@ -192,8 +207,28 @@ root.addEventListener('click',async e=>{try{
   if(t.id==='invite-button')await copyInvite();
   if(t.id==='join')await joinSpace(document.querySelector('#invite-input').value);
   if(t.id==='connect-google')authorizeGoogle();
-  if(t.dataset.copyItem){copyingItemId=t.dataset.copyItem;render();requestAnimationFrame(()=>{document.querySelector('#copy-item-form')?.scrollIntoView({behavior:'smooth',block:'center'});document.querySelector('#copy-item-form input')?.focus();});}
-  if(t.hasAttribute('data-cancel-copy')){copyingItemId='';render();}
+  if(t.dataset.copyItem){
+    copyingItemId=t.dataset.copyItem;copyDates=new Set();
+    const source=items.find(item=>item.id===copyingItemId),sourceDate=source?.date?new Date(source.date):new Date();
+    copyMonth=Number.isNaN(sourceDate.getTime())?new Date():new Date(sourceDate.getFullYear(),sourceDate.getMonth(),1);
+    render();
+  }
+  if(t.hasAttribute('data-cancel-copy')||t.hasAttribute('data-close-copy')){copyingItemId='';copyDates=new Set();render();}
+  if(t.dataset.copyMonth){copyMonth=new Date(copyMonth.getFullYear(),copyMonth.getMonth()+Number(t.dataset.copyMonth),1);render();}
+  if(t.dataset.copyDay){
+    const day=t.dataset.copyDay;
+    if(copyDates.has(day))copyDates.delete(day);else if(copyDates.size<30)copyDates.add(day);else alert('一次最多選擇 30 個日期');
+    render();
+  }
+  if(t.hasAttribute('data-confirm-copy')){
+    const source=items.find(item=>item.id===copyingItemId&&!item.source);
+    if(!source)throw new Error('找不到要複製的行程，請重新操作');
+    const dates=[...copyDates].sort();
+    if(!dates.length)throw new Error('請至少選擇一個日期');
+    t.disabled=true;t.textContent='建立中…';
+    await Promise.all(dates.map(date=>addDoc(coll('items'),{title:source.title,date:copyDateWithOriginalTime(source,date),kind:source.kind,done:false,ownerUid:uid(),source:'',updatedAt:serverTimestamp()})));
+    copyingItemId='';copyDates=new Set();render();alert(`已建立 ${dates.length} 個日期副本`);
+  }
   if(t.dataset.editNote){editingNoteId=t.dataset.editNote;render();requestAnimationFrame(()=>document.querySelector('.edit-note-form input')?.focus());}
   if(t.hasAttribute('data-cancel-note')){editingNoteId='';render();}
   if(t.id==='sync-google'){saveSelected();await syncGoogle();}
@@ -205,16 +240,6 @@ root.addEventListener('submit',async e=>{e.preventDefault();try{
   if(form.id==='note-form')await addDoc(coll('notes'),{title:String(data.get('title')).trim(),body:String(data.get('body')).trim(),authorUid:uid(),createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
   if(form.matches('.edit-note-form')){await updateDoc(doc(db,'couples',coupleId,'notes',form.dataset.noteId),{title:String(data.get('title')).trim(),body:String(data.get('body')).trim(),updatedAt:serverTimestamp()});editingNoteId='';}
   if(form.id==='item-form')await addDoc(coll('items'),{title:String(data.get('title')).trim(),date:data.get('date')?new Date(String(data.get('date'))).toISOString():'',kind:data.get('kind'),done:false,ownerUid:uid(),source:'',updatedAt:serverTimestamp()});
-  if(form.id==='copy-item-form'){
-    const source=items.find(item=>item.id===form.dataset.sourceItem&&!item.source);
-    if(!source)throw new Error('找不到要複製的行程，請重新操作');
-    const dates=[...new Set(data.getAll('copy-date').map(String).filter(Boolean))];
-    if(!dates.length)throw new Error('請至少選擇一個日期');
-    await Promise.all(dates.map(date=>addDoc(coll('items'),{title:source.title,date:copyDateWithOriginalTime(source,date),kind:source.kind,done:false,ownerUid:uid(),source:'',updatedAt:serverTimestamp()})));
-    copyingItemId='';
-    render();
-    alert(`已建立 ${dates.length} 個日期副本`);
-  }
   form.reset();
 }catch(err){error(err)}});
 root.addEventListener('change',async e=>{if(e.target.dataset.toggle){try{await updateDoc(doc(db,'couples',coupleId,'items',e.target.dataset.toggle),{done:e.target.checked,updatedAt:serverTimestamp()})}catch(err){error(err)}}});
