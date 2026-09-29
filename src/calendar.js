@@ -53,7 +53,7 @@ function coupleHolidays(year){
   return holidays;
 }
 
-export function calendarMarkup(items,notes,viewMonth,selectedDay){
+export function calendarMarkup(items,notes,viewMonth,selectedDay,showLunar=true){
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const valueDate=v=>typeof v?.toDate==='function'?v.toDate():v?.seconds?new Date(v.seconds*1000):new Date(v);
   const kindLabel=k=>k==='shift'?'值班':k==='memo'?'Memo':k==='task_rui'?'芮代辦':k==='task_ming'?'銘代辦':'共同代辦';
@@ -74,14 +74,14 @@ export function calendarMarkup(items,notes,viewMonth,selectedDay){
     const nationalHoliday=taiwanHoliday(key);
     const lunar=almanac(d);
     const chips=[
-      ...(lunar.auspicious?[`<span class="cal-chip auspicious">大吉 · ${esc(lunar.romanceYi.slice(0,2).join('、')||'宜約會')}</span>`]:[]),
+      ...(showLunar&&lunar.auspicious?[`<span class="cal-chip auspicious">大吉 · ${esc(lunar.romanceYi.slice(0,2).join('、')||'宜約會')}</span>`]:[]),
       ...(nationalHoliday?[`<span class="cal-chip national">🇹🇼 ${esc(nationalHoliday.title)}</span>`]:[]),
       ...dayHolidays.map(event=>`<span class="cal-chip holiday ${event.anniversary?'anniversary':''}">${esc(event.title)}</span>`),
       ...dayItems.map(i=>`<span class="cal-chip ${kindClass(i.kind)} ${i.done?'done':''}">${esc(i.title)}</span>`),
       ...dayNotes.map(n=>`<span class="cal-chip note">${esc(n.title)}</span>`)
     ];
     const extra=chips.length>2?`<span class="cal-more">＋${chips.length-2}</span>`:'';
-    return `<button type="button" class="cal-day ${d.getMonth()!==m?'outside':''} ${key===selectedDay?'selected':''}" data-calendar-day="${key}"><span class="cal-date-head"><span class="cal-number">${d.getDate()}</span><span class="lunar-day">${esc(lunar.lunar.replace('農曆',''))}</span></span><span class="cal-events">${chips.slice(0,2).join('')}${extra}</span></button>`;
+    return `<button type="button" class="cal-day ${d.getMonth()!==m?'outside':''} ${key===selectedDay?'selected':''}" data-calendar-day="${key}"><span class="cal-date-head"><span class="cal-number">${d.getDate()}</span>${showLunar?`<span class="lunar-day">${esc(lunar.lunar.replace('農曆',''))}</span>`:''}</span><span class="cal-events">${chips.slice(0,2).join('')}${extra}</span></button>`;
   }).join('');
   const dayItems=itemEvents.filter(i=>dateKey(i.date)===selectedDay).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
   const dayNotes=noteEvents.filter(n=>dateKey(n.createdAt)===selectedDay);
@@ -91,7 +91,7 @@ export function calendarMarkup(items,notes,viewMonth,selectedDay){
   const selectedNational=taiwanHoliday(selectedDay);
   const selectedLabel=selectedDay?new Date(`${selectedDay}T12:00:00`).toLocaleDateString('zh-TW',{month:'long',day:'numeric',weekday:'long'}):'選擇日期';
   const agenda=[
-    `<article class="almanac-panel ${selectedAlmanac.auspicious?'is-auspicious':''}"><div class="almanac-title"><strong>${esc(selectedAlmanac.lunar)} · ${esc(selectedAlmanac.zhiXing)}日</strong>${selectedAlmanac.auspicious?'<span class="auspicious-badge">大吉</span>':''}</div><p><b>宜</b> ${esc(selectedAlmanac.yi.slice(0,8).join('、')||'無')}</p><p><b>忌</b> ${esc(selectedAlmanac.ji.slice(0,8).join('、')||'無')}</p><small>民俗擇日資訊僅供生活規劃參考</small></article>`,
+    ...(showLunar?[`<article class="almanac-panel ${selectedAlmanac.auspicious?'is-auspicious':''}"><div class="almanac-title"><strong>${esc(selectedAlmanac.lunar)} · ${esc(selectedAlmanac.zhiXing)}日</strong>${selectedAlmanac.auspicious?'<span class="auspicious-badge">大吉</span>':''}</div><p><b>宜</b> ${esc(selectedAlmanac.yi.slice(0,8).join('、')||'無')}</p><p><b>忌</b> ${esc(selectedAlmanac.ji.slice(0,8).join('、')||'無')}</p><small>民俗擇日資訊僅供生活規劃參考</small></article>`]:[]),
     ...(selectedNational?[`<article class="agenda-row national-row"><div class="agenda-main"><label><span class="agenda-dot national"></span><strong>🇹🇼 ${esc(selectedNational.title)}</strong></label><small>台灣國定假日（政府辦公日曆）</small></div></article>`]:[]),
     ...dayHolidays.map(event=>`<article class="agenda-row holiday-row ${event.anniversary?'anniversary':''}"><div class="agenda-main"><label><span class="agenda-dot holiday"></span><strong>${esc(event.title)}</strong></label><small>${event.anniversary?'你們的重要紀念日':'情侶節日'}</small></div></article>`),
     ...dayItems.map(i=>{
@@ -101,13 +101,14 @@ export function calendarMarkup(items,notes,viewMonth,selectedDay){
     }),
     ...dayNotes.map(n=>`<article class="agenda-row swipeable" data-swipe-note="${esc(n.id)}"><div class="agenda-main"><span class="agenda-dot note"></span><strong>${esc(n.title)}</strong><small>記事 · ${esc(n.body||'')}</small></div><span class="swipe-delete">刪除</span></article>`)
   ].join('');
-  return `<section class="card calendar-card" id="calendar"><div class="calendar-head"><button type="button" class="cal-arrow subtle" data-month-step="-1" aria-label="上個月">‹</button><div><small>兩個人的行事曆 · 農曆大吉 · 國定假日</small><h2>${y} 年 ${m+1} 月</h2></div><button type="button" class="cal-today subtle" data-calendar-today>今天</button><button type="button" class="cal-arrow subtle" data-month-step="1" aria-label="下個月">›</button></div><div class="calendar-legend"><span class="legend-auspicious">大吉</span><span class="legend-national">台灣假日</span><span class="legend-couple">情侶節日</span></div><div class="weekdays">${weekdays.map(w=>`<span>${w}</span>`).join('')}</div><div class="calendar-grid">${cells}</div><div class="agenda" id="daily"><div class="agenda-title"><h3>${esc(selectedLabel)}的行程</h3><small>手動項目可向左或向右滑動刪除</small></div><div class="agenda-list">${agenda||'<p class="empty">這一天還沒有行程或記事。</p>'}</div></div></section>`;
+  return `<section class="card calendar-card" id="calendar"><div class="calendar-head"><button type="button" class="cal-arrow subtle" data-month-step="-1" aria-label="上個月">‹</button><div><small>兩個人的行事曆 · ${showLunar?'農曆大吉 · ':''}國定假日</small><h2>${y} 年 ${m+1} 月</h2></div><button type="button" class="cal-today subtle" data-calendar-today>今天</button><button type="button" class="cal-arrow subtle" data-month-step="1" aria-label="下個月">›</button></div><div class="calendar-legend">${showLunar?'<span class="legend-auspicious">大吉</span>':''}<span class="legend-national">台灣假日</span><span class="legend-couple">情侶節日</span><button type="button" class="lunar-toggle ${showLunar?'active':''}" data-toggle-lunar aria-pressed="${showLunar}">農曆：${showLunar?'顯示':'隱藏'}</button></div><div class="weekdays">${weekdays.map(w=>`<span>${w}</span>`).join('')}</div><div class="calendar-grid">${cells}</div><div class="agenda" id="daily"><div class="agenda-title"><h3>${esc(selectedLabel)}的行程</h3><small>手動項目可向左或向右滑動刪除</small></div><div class="agenda-list">${agenda||'<p class="empty">這一天還沒有行程或記事。</p>'}</div></div></section>`;
 }
 
 export function setupCalendar(root,handlers){
   root.querySelectorAll('[data-calendar-day]').forEach(button=>button.addEventListener('click',()=>handlers.onSelectDay(button.dataset.calendarDay)));
   root.querySelectorAll('[data-month-step]').forEach(button=>button.addEventListener('click',()=>handlers.onChangeMonth(Number(button.dataset.monthStep))));
   root.querySelector('[data-calendar-today]')?.addEventListener('click',handlers.onToday);
+  root.querySelector('[data-toggle-lunar]')?.addEventListener('click',handlers.onToggleLunar);
   root.querySelectorAll('[data-calendar-toggle]').forEach(box=>box.addEventListener('change',()=>handlers.onToggle(box.dataset.calendarToggle,box.checked)));
   root.querySelectorAll('[data-swipe-item],[data-swipe-note]').forEach(row=>{
     let startX=0,currentX=0;
