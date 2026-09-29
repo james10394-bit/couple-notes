@@ -56,8 +56,8 @@ function coupleHolidays(year){
 export function calendarMarkup(items,notes,viewMonth,selectedDay){
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const valueDate=v=>typeof v?.toDate==='function'?v.toDate():v?.seconds?new Date(v.seconds*1000):new Date(v);
-  const kindLabel=k=>k==='shift'?'值班':k==='memo'?'Memo':'待辦';
-  const kindClass=k=>k==='shift'?'shift':k==='memo'?'memo':'task';
+  const kindLabel=k=>k==='shift'?'值班':k==='memo'?'Memo':k==='task_rui'?'芮代辦':k==='task_ming'?'銘代辦':'共同代辦';
+  const kindClass=k=>k==='shift'?'shift':k==='memo'?'memo':k==='task_rui'?'task-rui':k==='task_ming'?'task-ming':'task';
   const month=new Date(viewMonth.getFullYear(),viewMonth.getMonth(),1);
   const start=new Date(month);start.setDate(1-month.getDay());
   const y=month.getFullYear(),m=month.getMonth();
@@ -96,8 +96,8 @@ export function calendarMarkup(items,notes,viewMonth,selectedDay){
     ...dayHolidays.map(event=>`<article class="agenda-row holiday-row ${event.anniversary?'anniversary':''}"><div class="agenda-main"><label><span class="agenda-dot holiday"></span><strong>${esc(event.title)}</strong></label><small>${event.anniversary?'你們的重要紀念日':'情侶節日'}</small></div></article>`),
     ...dayItems.map(i=>{
       const canDelete=!i.source;
-      const check=i.kind==='task'?`<input type="checkbox" data-calendar-toggle="${esc(i.id)}" ${i.done?'checked':''} ${i.source?'disabled':''}>`:`<span class="agenda-dot ${kindClass(i.kind)}"></span>`;
-      return `<article class="agenda-row ${i.done?'done':''} ${canDelete?'swipeable':''}" ${canDelete?`data-swipe-item="${esc(i.id)}"`:''}><div class="agenda-main"><label>${check}<strong>${esc(i.title)}</strong></label><small>${kindLabel(i.kind)} · ${i.date?valueDate(i.date).toLocaleTimeString('zh-TW',{timeZone:'Asia/Taipei',hour:'2-digit',minute:'2-digit'}):'未設定'}${i.source?' · Google 匯入':''}</small></div>${canDelete?`<button type="button" class="agenda-copy" data-copy-item="${esc(i.id)}" aria-label="複製到其他日期">複製</button><span class="swipe-delete">刪除</span>`:''}</article>`;
+      const check=String(i.kind).startsWith('task')?`<input type="checkbox" data-calendar-toggle="${esc(i.id)}" ${i.done?'checked':''} ${i.source?'disabled':''}>`:`<span class="agenda-dot ${kindClass(i.kind)}"></span>`;
+      return `<article class="agenda-row ${i.done?'done':''} ${canDelete?'swipeable':''}" ${canDelete?`data-swipe-item="${esc(i.id)}"`:''}><div class="agenda-main"><label>${check}<strong>${esc(i.title)}</strong></label><small>${kindLabel(i.kind)} · ${i.date?valueDate(i.date).toLocaleTimeString('zh-TW',{timeZone:'Asia/Taipei',hour:'2-digit',minute:'2-digit'}):'未設定'}${i.source?' · Google 匯入':''}</small></div>${canDelete?`<div class="agenda-actions">${i.kind==='memo'?`<button type="button" class="agenda-edit" data-edit-item="${esc(i.id)}" aria-label="修改 Memo">修改</button>`:''}<button type="button" class="agenda-copy" data-copy-item="${esc(i.id)}" aria-label="複製到其他日期">複製</button></div><span class="swipe-delete">刪除</span>`:''}</article>`;
     }),
     ...dayNotes.map(n=>`<article class="agenda-row swipeable" data-swipe-note="${esc(n.id)}"><div class="agenda-main"><span class="agenda-dot note"></span><strong>${esc(n.title)}</strong><small>記事 · ${esc(n.body||'')}</small></div><span class="swipe-delete">刪除</span></article>`)
   ].join('');

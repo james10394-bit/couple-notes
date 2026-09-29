@@ -12,8 +12,14 @@ const auth = app && getAuth(app), db = app && initializeFirestore(app, {
   useFetchStreams: false
 });
 const root = document.querySelector('#app');
+function applyAutomaticTheme(){
+  const taipeiHour=new Date(Date.now()+8*60*60*1000).getUTCHours();
+  document.documentElement.dataset.theme=taipeiHour>=6&&taipeiHour<18?'day':'night';
+}
+applyAutomaticTheme();
+setInterval(applyAutomaticTheme,60000);
 let user = null, coupleId = null, notes = [], items = [], members = [], stops = [], inviteCode = '', inviteExpiry = 0, googleToken = '', googleExpiry = 0, googleTimer = null, syncing = false;
-let calendarMonth = new Date(), selectedDay = dateKey(new Date()), editingNoteId = '', copyingItemId = '', copyMonth = new Date(), copyDates = new Set();
+let calendarMonth = new Date(), selectedDay = dateKey(new Date()), editingNoteId = '', editingItemId = '', copyingItemId = '', copyMonth = new Date(), copyDates = new Set();
 const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const error = e => { console.error(e); alert(e?.message || '操作失敗，請稍後再試。'); };
 const dateText = v => v ? new Date(v).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '未設定';
@@ -26,6 +32,26 @@ function defaultItemDate(){
   const d=year?new Date(year,month-1,day,8,0):new Date();
   const local=new Date(d.getTime()-d.getTimezoneOffset()*60000);
   return local.toISOString().slice(0,16);
+}
+
+function itemKindOptions(selected='task'){
+  const normalized=selected==='task'?'task_shared':selected;
+  return [
+    ['task_shared','共同代辦'],
+    ['task_rui','芮代辦'],
+    ['task_ming','銘代辦'],
+    ['shift','值班'],
+    ['memo','Memo']
+  ].map(([value,label])=>`<option value="${value}" ${normalized===value?'selected':''}>${label}</option>`).join('');
+}
+
+function localDateTimeValue(value){
+  if(!value)return '';
+  const date=new Date(value);
+  if(Number.isNaN(date.getTime()))return '';
+  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date);
+  const get=type=>parts.find(part=>part.type===type)?.value||'';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
 }
 
 function copyDateWithOriginalTime(item,dateValue){
@@ -41,7 +67,7 @@ function copyCalendarSheet(source){
   const month=new Date(copyMonth.getFullYear(),copyMonth.getMonth(),1);
   const start=new Date(month);start.setDate(1-month.getDay());
   const monthIndex=month.getMonth(),sourceDay=dateKey(source.date),today=dateKey(new Date());
-  const kindClass=kind=>kind==='shift'?'shift':kind==='memo'?'memo':'task';
+  const kindClass=kind=>kind==='shift'?'shift':kind==='memo'?'memo':kind==='task_rui'?'task-rui':kind==='task_ming'?'task-ming':'task';
   const cells=Array.from({length:42},(_,index)=>{
     const day=new Date(start);day.setDate(start.getDate()+index);
     const key=`${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`;
@@ -53,13 +79,16 @@ function copyCalendarSheet(source){
 }
 
 function appMarkup(){
+  const todayStart=new Date();todayStart.setHours(0,0,0,0);
+  const threeDaysEnd=new Date(todayStart);threeDaysEnd.setDate(threeDaysEnd.getDate()+3);threeDaysEnd.setHours(23,59,59,999);
   const visibleItems=items.filter(item=>{
-    if(!item.date)return true;
+    if(item.id===editingItemId)return true;
+    if(!item.date)return false;
     const time=new Date(item.date).getTime();
-    return Number.isNaN(time)||time>=Date.now()-3*86400000;
-  });
-  const kindLabel=k=>k==='shift'?'值班':k==='memo'?'Memo':'待辦';
-  const kindClass=k=>k==='shift'?'shift':k==='memo'?'memo':'task';
+    return !Number.isNaN(time)&&time>=todayStart.getTime()&&time<=threeDaysEnd.getTime();
+  }).sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const kindLabel=k=>k==='shift'?'值班':k==='memo'?'Memo':k==='task_rui'?'芮代辦':k==='task_ming'?'銘代辦':'共同代辦';
+  const kindClass=k=>k==='shift'?'shift':k==='memo'?'memo':k==='task_rui'?'task-rui':k==='task_ming'?'task-ming':'task';
   const copyingItem=items.find(item=>item.id===copyingItemId&&!item.source);
   const copySheet=copyingItem?copyCalendarSheet(copyingItem):'';
   return `<main class="shell"><header><div><small>OUR LITTLE DAYS · ${esc(members.map(m=>m.displayName).join(' × '))}</small><h1>兩個人的小日子 ♡</h1></div><button class="subtle" id="logout">登出</button></header>
@@ -67,11 +96,11 @@ function appMarkup(){
   <section class="intro card"><div><h2>今天也一起把生活記下來</h2><p>行程、代辦、值班與記事即時同步，點日期即可查看當日內容。</p></div><div><div class="pill">已同步 · ${esc(members.length)} 位成員</div><button class="subtle" id="invite-button">${inviteCode&&inviteExpiry>Date.now()?`邀請碼：${esc(inviteCode)}（點擊複製）`:'產生邀請碼'}</button></div></section>
   <div class="content-stack">
     ${calendarMarkup(items,notes,calendarMonth,selectedDay)}
-    <section class="card" id="items"><h2>待辦與值班</h2><p class="section-hint">加入待辦、值班或 Memo；有日期的內容會顯示在上方行事曆。</p><form id="item-form"><input name="title" maxlength="100" required placeholder="例如：買牛奶 / 晚班 / 重要提醒"><div class="row"><select name="kind"><option value="task">共同待辦</option><option value="shift">值班行程</option><option value="memo">Memo</option></select><input name="date" type="datetime-local" value="${defaultItemDate()}"></div><button>加入清單</button></form><div class="list">${visibleItems.length?visibleItems.map(i=>`<article class="entry ${i.done?'done':''}"><div class="row"><label class="item-label">${i.kind==='task'?`<input type="checkbox" data-toggle="${esc(i.id)}" ${i.done?'checked':''} ${i.source?'disabled title="Google 匯入項目請在 Google 修改"':''}>`:`<span class="item-kind-dot ${kindClass(i.kind)}"></span>`}<strong>${esc(i.title)}</strong></label><div class="entry-actions">${i.source?'':`<button class="icon copy-icon" data-copy-item="${esc(i.id)}" aria-label="複製到其他日期" title="複製到其他日期">⧉</button><button class="icon" data-delete-item="${esc(i.id)}" aria-label="刪除項目">×</button>`}</div></div><small>${kindLabel(i.kind)} · ${esc(dateText(i.date))}${i.source?' · Google 匯入':''}</small></article>`).join(''):'<p class="empty">還沒有待辦、值班或 Memo。</p>'}</div></section>
+    <section class="card" id="items"><h2>待辦與值班</h2><p class="section-hint">加入待辦、值班或 Memo；有日期的內容會顯示在上方行事曆。</p><form id="item-form"><input name="title" maxlength="100" required placeholder="例如：買牛奶 / 晚班 / 重要提醒"><div class="row"><select name="kind">${itemKindOptions()}</select><input name="date" type="datetime-local" value="${defaultItemDate()}"></div><button>加入清單</button></form><div class="list">${visibleItems.length?visibleItems.map(i=>editingItemId===i.id?`<article class="entry editing"><form class="edit-item-form" data-item-id="${esc(i.id)}"><input name="title" maxlength="100" required value="${esc(i.title)}"><div class="row"><select name="kind">${itemKindOptions(i.kind)}</select><input name="date" type="datetime-local" value="${esc(localDateTimeValue(i.date))}"></div><div class="row item-edit-actions"><button type="button" class="subtle" data-cancel-item>取消</button><button type="submit">儲存修改</button></div></form></article>`:`<article class="entry ${i.done?'done':''}"><div class="row"><label class="item-label">${String(i.kind).startsWith('task')?`<input type="checkbox" data-toggle="${esc(i.id)}" ${i.done?'checked':''} ${i.source?'disabled title="Google 匯入項目請在 Google 修改"':''}>`:`<span class="item-kind-dot ${kindClass(i.kind)}"></span>`}<strong>${esc(i.title)}</strong></label><div class="entry-actions">${i.source?'':`${i.kind==='memo'?`<button class="icon edit-icon" data-edit-item="${esc(i.id)}" aria-label="修改 Memo" title="修改 Memo">✎</button>`:''}<button class="icon copy-icon" data-copy-item="${esc(i.id)}" aria-label="複製到其他日期" title="複製到其他日期">⧉</button><button class="icon" data-delete-item="${esc(i.id)}" aria-label="刪除項目">×</button>`}</div></div><small>${kindLabel(i.kind)} · ${esc(dateText(i.date))}${i.source?' · Google 匯入':''}</small></article>`).join(''):'<p class="empty">還沒有待辦、值班或 Memo。</p>'}</div></section>
     <section class="card" id="notes"><h2>我們的記事本</h2><form id="note-form"><input name="title" maxlength="100" required placeholder="標題，例如：週末小旅行"><textarea name="body" maxlength="10000" required placeholder="寫下想記住的事…"></textarea><button>新增記事</button></form><div class="list">${notes.length?notes.map(n=>editingNoteId===n.id?`<article class="entry editing"><form class="edit-note-form" data-note-id="${esc(n.id)}"><input name="title" maxlength="100" required value="${esc(n.title)}"><textarea name="body" maxlength="10000" required>${esc(n.body)}</textarea><div class="row note-actions"><button type="button" class="subtle" data-cancel-note>取消</button><button type="submit">儲存修改</button></div></form></article>`:`<article class="entry"><div class="row"><strong>${esc(n.title)}</strong><div class="entry-actions"><button class="icon edit-icon" data-edit-note="${esc(n.id)}" aria-label="修改記事">✎</button><button class="icon" data-delete-note="${esc(n.id)}" aria-label="刪除記事">×</button></div></div><p class="pre">${esc(n.body)}</p><small>${esc(members.find(m=>m.uid===n.authorUid)?.displayName||'成員')}</small></article>`).join(''):'<p class="empty">還沒有記事，寫下第一句吧。</p>'}</div></section>
   </div>
   <section class="card google" id="google"><h2>Google 工作與值班同步</h2><p>連接 Google 工作清單和日曆後，選取要分享的清單與值班日曆。匯入資料只能在 Google 修改。</p><div class="row"><button id="connect-google">${googleToken?'重新授權 Google':'連接 Google'}</button><button class="subtle" id="sync-google" ${googleToken?'':'disabled'}>立即同步</button></div><div id="google-selectors"></div><small id="sync-status">${googleToken?'已授權，網頁開啟時每 5 分鐘更新':'尚未授權'}</small></section>
-  <footer>版本 1.0.7 · 月曆式批次複製 · 農曆大吉、台灣國定假日與情侶節日</footer></main>${copySheet}`;
+  <footer>版本 1.0.8 · Memo 可修改 · 五種分類 · 三日清單 · 自動日夜模式（GMT+8）</footer></main>${copySheet}`;
 }
 function render() {
   if (!configured) {root.innerHTML=`<main class="shell"><h1>兩個人的小日子 ♡</h1><div class="card"><h2>先完成設定</h2><p>建立 Firebase 專案，將 <code>.env.example</code> 複製為 <code>.env</code> 並填入設定，再啟動網站。步驟請看 README。</p></div></main>`;return;}
@@ -231,6 +260,8 @@ root.addEventListener('click',async e=>{try{
   }
   if(t.dataset.editNote){editingNoteId=t.dataset.editNote;render();requestAnimationFrame(()=>document.querySelector('.edit-note-form input')?.focus());}
   if(t.hasAttribute('data-cancel-note')){editingNoteId='';render();}
+  if(t.dataset.editItem){editingItemId=t.dataset.editItem;render();requestAnimationFrame(()=>document.querySelector('.edit-item-form input')?.focus());}
+  if(t.hasAttribute('data-cancel-item')){editingItemId='';render();}
   if(t.id==='sync-google'){saveSelected();await syncGoogle();}
   if(t.dataset.deleteNote&&confirm('刪除這篇記事？'))await deleteDoc(doc(db,'couples',coupleId,'notes',t.dataset.deleteNote));
   if(t.dataset.deleteItem&&confirm('刪除這個項目？'))await deleteDoc(doc(db,'couples',coupleId,'items',t.dataset.deleteItem));
@@ -239,6 +270,7 @@ root.addEventListener('submit',async e=>{e.preventDefault();try{
   const form=e.target, data=new FormData(form);
   if(form.id==='note-form')await addDoc(coll('notes'),{title:String(data.get('title')).trim(),body:String(data.get('body')).trim(),authorUid:uid(),createdAt:serverTimestamp(),updatedAt:serverTimestamp()});
   if(form.matches('.edit-note-form')){await updateDoc(doc(db,'couples',coupleId,'notes',form.dataset.noteId),{title:String(data.get('title')).trim(),body:String(data.get('body')).trim(),updatedAt:serverTimestamp()});editingNoteId='';}
+  if(form.matches('.edit-item-form')){await updateDoc(doc(db,'couples',coupleId,'items',form.dataset.itemId),{title:String(data.get('title')).trim(),date:data.get('date')?new Date(String(data.get('date'))).toISOString():'',kind:String(data.get('kind')),updatedAt:serverTimestamp()});editingItemId='';}
   if(form.id==='item-form')await addDoc(coll('items'),{title:String(data.get('title')).trim(),date:data.get('date')?new Date(String(data.get('date'))).toISOString():'',kind:data.get('kind'),done:false,ownerUid:uid(),source:'',updatedAt:serverTimestamp()});
   form.reset();
 }catch(err){error(err)}});
