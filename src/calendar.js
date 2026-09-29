@@ -97,7 +97,7 @@ export function calendarMarkup(items,notes,viewMonth,selectedDay){
     ...dayItems.map(i=>{
       const canDelete=!i.source;
       const check=i.kind==='task'?`<input type="checkbox" data-calendar-toggle="${esc(i.id)}" ${i.done?'checked':''} ${i.source?'disabled':''}>`:`<span class="agenda-dot ${kindClass(i.kind)}"></span>`;
-      return `<article class="agenda-row ${i.done?'done':''} ${canDelete?'swipeable':''}" ${canDelete?`data-swipe-item="${esc(i.id)}"`:''}><div class="agenda-main"><label>${check}<strong>${esc(i.title)}</strong></label><small>${kindLabel(i.kind)} · ${i.date?valueDate(i.date).toLocaleTimeString('zh-TW',{timeZone:'Asia/Taipei',hour:'2-digit',minute:'2-digit'}):'未設定'}${i.source?' · Google 匯入':''}</small></div>${canDelete?'<span class="swipe-delete">刪除</span>':''}</article>`;
+      return `<article class="agenda-row ${i.done?'done':''} ${canDelete?'swipeable':''}" ${canDelete?`data-swipe-item="${esc(i.id)}"`:''}><div class="agenda-main"><label>${check}<strong>${esc(i.title)}</strong></label><small>${kindLabel(i.kind)} · ${i.date?valueDate(i.date).toLocaleTimeString('zh-TW',{timeZone:'Asia/Taipei',hour:'2-digit',minute:'2-digit'}):'未設定'}${i.source?' · Google 匯入':''}</small></div>${canDelete?`<button type="button" class="agenda-copy" data-copy-item="${esc(i.id)}" aria-label="複製到其他日期">複製</button><span class="swipe-delete">刪除</span>`:''}</article>`;
     }),
     ...dayNotes.map(n=>`<article class="agenda-row swipeable" data-swipe-note="${esc(n.id)}"><div class="agenda-main"><span class="agenda-dot note"></span><strong>${esc(n.title)}</strong><small>記事 · ${esc(n.body||'')}</small></div><span class="swipe-delete">刪除</span></article>`)
   ].join('');
